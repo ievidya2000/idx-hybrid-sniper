@@ -2,36 +2,53 @@ name: daily-sniper
 
 on:
   schedule:
-    # 10:15 UTC = 17:15 WIB, Monday-Friday (after IDX market close)
     - cron: "15 10 * * 1-5"
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+  workflow_dispatch:
 
 jobs:
   update-and-scan:
     runs-on: ubuntu-latest
-    
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install "curl_cffi>=0.15"
-      
+
       - name: Update market data (incremental)
         run: python main.py update
-      
+
       - name: Scan for signals and send Telegram alerts
         run: python main.py scan
+
+      - name: Report run status to Telegram
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os, requests
+          status = os.environ["JOB_STATUS"]
+          icon = "✅" if status == "success" else "❌"
+          text = icon + " daily-sniper run: " + status
+          text += "\n" + os.environ["RUN_URL"]
+          url = "https://api.telegram.org/bot"
+          url += os.environ["TELEGRAM_BOT_TOKEN"]
+          url += "/sendMessage"
+          requests.post(url, json={
+              "chat_id": os.environ["TELEGRAM_CHAT_ID"],
+              "text": text})
+          PY
