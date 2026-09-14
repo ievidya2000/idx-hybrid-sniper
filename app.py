@@ -468,6 +468,45 @@ elif page == "📊 Market Screener":
                 hide_index=True
             )
 
+            # === PROFESSIONAL EXPORT BUTTONS (CSV + HTML) ===
+            stamp = scan_time.strftime('%Y%m%d_%H%M')
+            csv_out = display_df.to_csv(index=False)
+            csv_bytes = csv_out.encode('utf-8-sig')
+            h = "<html><head><meta charset='utf-8'>"
+            h += "<title>IDX Sniper Signals</title>"
+            h += "<style>"
+            h += "body{font-family:Arial,sans-serif;margin:24px;}"
+            h += "h1{color:#0f4c81;}"
+            h += "h2{color:#666666;}"
+            h += "table{border-collapse:collapse;width:100%;}"
+            h += "th{background:#0f4c81;color:#ffffff;padding:8px;}"
+            h += "td{border:1px solid #dddddd;padding:6px;}"
+            h += "tr:nth-child(even){background:#f4f8fc;}"
+            h += "</style></head><body>"
+            h += "<h1>IDX Hybrid Sniper - Signals</h1>"
+            h += "<h2>Scan: "
+            h += scan_time.strftime('%Y-%m-%d %H:%M')
+            h += " WIB</h2>"
+            h += display_df.to_html(index=False, border=0)
+            h += "</body></html>"
+            html_bytes = h.encode('utf-8')
+            col_csv, col_html = st.columns(2)
+            with col_csv:
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv_bytes,
+                    file_name="idx_signals_" + stamp + ".csv",
+                    mime="text/csv",
+                )
+            with col_html:
+                st.download_button(
+                    label="🌐 Download HTML report",
+                    data=html_bytes,
+                    file_name="idx_signals_" + stamp + ".html",
+                    mime="text/html",
+                )
+            # ====================================================
+
             # Expandable details for each signal
             st.markdown("### 🔍 Signal Details Inspector")
             
@@ -1032,4 +1071,4 @@ st.markdown(
     "IDX Hybrid Sniper v2.0 | Buy on Weakness, Sell on Strength, Ride the Monster Trend"
     "</div>",
     unsafe_allow_html=True
-                   )
+                )
