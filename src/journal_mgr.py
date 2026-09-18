@@ -183,7 +183,7 @@ class JournalManager:
                     return stats
                 stats['total_trades'] = len(df)
                 wins = len(df[df['pnl_percent'] > 0])
-                stats['win_rate'] = (wins / stats['total_trades']) * 100
+                stats['win_rate'] = (wins / stats['total_trades']) * 100 if stats['total_trades'] > 0 else 0
                 stats['avg_pnl_percent'] = float(df['pnl_percent'].mean())
                 if 'pnl_amount' in df.columns:
                     stats['total_pnl_idr'] = float(df['pnl_amount'].sum())
@@ -239,6 +239,5 @@ class JournalManager:
                 'type': 'TRAILING_STOP', 'action': 'CLOSE_REMAINING',
                 'reason': f"SuperTrend flipped bearish @ {supertrend_value:.2f}"})
         return result
-
 
 journal_mgr = JournalManager()
