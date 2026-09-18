@@ -30,25 +30,9 @@ jobs:
       - name: Update market data (incremental)
         run: python main.py update
 
-      - name: Scan for signals and send Telegram alerts
+      - name: Scan for signals
         run: python main.py scan
 
-      - name: Report run status to Telegram
+      - name: Send Rich Telegram Report
         if: always()
-        env:
-          JOB_STATUS: ${{ job.status }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          python - <<'PY'
-          import os, requests
-          status = os.environ["JOB_STATUS"]
-          icon = "✅" if status == "success" else "❌"
-          text = icon + " daily-sniper run: " + status
-          text += "\n" + os.environ["RUN_URL"]
-          url = "https://api.telegram.org/bot"
-          url += os.environ["TELEGRAM_BOT_TOKEN"]
-          url += "/sendMessage"
-          requests.post(url, json={
-              "chat_id": os.environ["TELEGRAM_CHAT_ID"],
-              "text": text})
-          PY
+        run: python src/telegram_notifier.py
