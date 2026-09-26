@@ -110,11 +110,26 @@ with st.sidebar.expander("📂 Import/Export CSV"):
 tickers = data_engine.get_tickers()
 st.sidebar.markdown(f"**Total:** {len(tickers)} stocks")
 
-# Update data button (LIGHTNING batch)
+# Update data button (GHOST-KILLER: Triggers Cloud Action instead of local loop)
 if st.sidebar.button("🔄 Update All Data"):
-    with st.spinner("⚡ Lightning batch update from Yahoo (~2-4 min)..."):
-        stats = run_lightning_update()
-    st.sidebar.success(f"✅ Lightning update: {stats['saved']} tickers refreshed")
+    import requests as _rq
+    _REPO = "ievidya2000/idx-hybrid-sniper"
+    _HDR = {"Accept": "application/vnd.github.v3+json"}
+    _pat = None
+    try:
+        _pat = st.secrets.get("GH_PAT", None)
+    except Exception:
+        _pat = None
+    if _pat:
+        _HDR["Authorization"] = "token " + _pat
+        try:
+            _rq.post(f"https://api.github.com/repos/{_REPO}/actions/workflows/daily-sniper.yml/dispatches",
+                     headers=_HDR, json={"ref": "main"}, timeout=15)
+            st.sidebar.success("✅ Cloud Lightning Update triggered! Wait ~5 mins for DB to refresh.")
+        except Exception:
+            st.sidebar.error("❌ Failed to trigger cloud update.")
+    else:
+        st.sidebar.error("❌ GH_PAT missing in Streamlit secrets.")
 
 st.sidebar.markdown("---")
 st.sidebar.caption("IDX Hybrid Sniper v2.0")
@@ -378,20 +393,66 @@ elif page == "📊 Market Screener":
 
     if scan_button:
         if live_update:
-            bar = st.progress(0.0, text="⚡ Lightning batch download starting...")
-
-            def _cb(done, total):
-                bar.progress(min(done / max(total, 1), 1.0),
-                             text=f"⚡ Yahoo batch {done}/{total}...")
-
-            stats = run_lightning_update(progress_cb=_cb)
-            bar.progress(1.0, text="⚡ Live update complete!")
-            st.success(f"⚡ {stats['saved']} tickers refreshed from live Yahoo.")
+            import requests as _rq
+            import time as _time
+            _REPO = "ievidya2000/idx-hybrid-sniper"
+            _HDR = {"Accept": "application/vnd.github.v3+json"}
+            _pat = None
+            try:
+                _pat = st.secrets.get("GH_PAT", None)
+            except Exception:
+                _pat = None
+            
+            if not _pat:
+                st.warning("⚡ needs GH_PAT in Streamlit secrets - scanning with existing DB data instead.")
+            else:
+                _HDR["Authorization"] = "token " + _pat
+                _old_id = 0
+                try:
+                    _r0 = _rq.get(
+                        f"https://api.github.com/repos/{_REPO}/actions/workflows/daily-sniper.yml/runs",
+                        headers=_HDR, params={"per_page": 1}, timeout=15).json()
+                    _old_id = _r0["workflow_runs"][0]["id"]
+                except Exception:
+                    _old_id = 0
+                    
+                try:
+                    _rq.post(
+                        f"https://api.github.com/repos/{_REPO}/actions/workflows/daily-sniper.yml/dispatches",
+                        headers=_HDR, json={"ref": "main"}, timeout=15)
+                except Exception:
+                    pass
+                    
+                bar = st.progress(0.0, text="⚡ Cloud lightning refresh dispatched... polling GitHub...")
+                _done = False
+                for _i in range(28):
+                    _time.sleep(15)
+                    _txt = f"⚡ Cloud refresh running... ({(_i + 1) * 15}s)"
+                    try:
+                        _r1 = _rq.get(
+                            f"https://api.github.com/repos/{_REPO}/actions/workflows/daily-sniper.yml/runs",
+                            headers=_HDR, params={"per_page": 1}, timeout=15).json()
+                        _run = _r1["workflow_runs"][0]
+                        _txt = f"⚡ Cloud run: {_run['status']} ({(_i + 1) * 15}s)"
+                        if _run["id"] != _old_id and _run["status"] == "completed":
+                            _done = True
+                    except Exception:
+                        pass
+                    bar.progress(min((_i + 1) / 28.0, 1.0), text=_txt)
+                    if _done:
+                        break
+                        
+                if _done:
+                    bar.progress(1.0, text="⚡ Cloud refresh complete!")
+                    st.success("⚡ Live Yahoo data landed in database.")
+                else:
+                    bar.progress(1.0, text="⚡ Timeout - using existing DB data.")
+                    st.warning("⚡ Cloud refresh not finished in 7 min - scanning with existing data.")
         else:
-            st.info("📡 Fast Scan: using database. Tick ⚡ box for LIVE Yahoo batch update (~2-4 min).")
+            st.info("📡 Fast Scan: using database. Tick ⚡ box for LIVE Yahoo batch update via cloud.")
 
-        with st.spinner(f"Scanning {len(tickers)} stocks..."):
-            # Scan all tickers
+        with st.spinner(f"⚡ Scanning {len(tickers)} stocks (DB-ONLY mode, no sequential timeouts)..."):
+            # GHOST-KILLER: Scan only uses what is in Supabase right now.
             signals = strategy.scan_tickers(tickers, data_engine)
             scan_time = datetime.now()
 
