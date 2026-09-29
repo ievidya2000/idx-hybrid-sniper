@@ -38,8 +38,16 @@ jobs:
       - name: Lightning update (parallel, 6-min deadline)
         run: python -c "from src.fast_update import run_lightning_update as r; print('STATS:', r())"
 
-      - name: Scan for signals
-        run: python main.py scan
+      - name: Scan for signals (DB-only, FAST - bypasses main.py hidden update)
+        run: |
+          python - << 'PY'
+          from src.strategy import strategy
+          from src.data_engine import data_engine
+          tickers = data_engine.get_tickers()
+          sigs = strategy.scan_tickers(tickers, data_engine)
+          n = len([s for s in sigs if s.signal_type != 'NO_SIGNAL'])
+          print('SCAN_DONE signals=', n)
+          PY
 
       - name: Send Rich Telegram Report
         if: always()
