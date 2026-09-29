@@ -2,19 +2,20 @@ name: daily-sniper
 
 on:
   schedule:
-    # 10:20 WIB -> results ~10:30-10:35 (live session 1)
+    # 10:20 WIB -> report ~10:30
     - cron: "20 3 * * 1-5"
-    # 12:20 WIB -> results ~12:30-12:35 (live session 2)
+    # 12:20 WIB -> report ~12:30
     - cron: "20 5 * * 1-5"
-    # 13:50 WIB -> results ~14:00-14:05 (live session 3)
+    # 13:50 WIB -> report ~14:00
     - cron: "50 6 * * 1-5"
-    # 17:15 WIB -> EOD final report
+    # 17:15 WIB -> EOD report ~17:25
     - cron: "15 10 * * 1-5"
   workflow_dispatch:
 
 jobs:
   update-and-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -34,7 +35,7 @@ jobs:
           pip install -r requirements.txt
           pip install "curl_cffi>=0.15"
 
-      - name: Lightning update market data (batch parallel)
+      - name: Lightning update (parallel, 6-min deadline)
         run: python -c "from src.fast_update import run_lightning_update as r; print('STATS:', r())"
 
       - name: Scan for signals
