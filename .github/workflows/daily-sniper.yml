@@ -35,8 +35,9 @@ jobs:
           pip install -r requirements.txt
           pip install "curl_cffi>=0.15"
 
-      - name: Lightning update (parallel, 6-min deadline)
-        run: python -c "from src.fast_update import run_lightning_update as r; print('STATS:', r())"
+      - name: Lightning update (6-min deadline + 10-min shell kill guard)
+        run: |
+          timeout -k 15 600 python -c "from src.fast_update import run_lightning_update as r; r(hard_exit=True)" || echo "UPDATE GUARD TRIGGERED - continuing with data already saved"
 
       - name: Scan for signals (DB-only, FAST - bypasses main.py hidden update)
         run: |
