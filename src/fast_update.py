@@ -1,12 +1,13 @@
 """
-IDX Hybrid Sniper - Lightning Parallel Updater v5.0 (Hang-Proof)
-- socket default timeout kills hung Yahoo connections early
-- 8 workers, 6-min internal deadline
-- hard_exit: flush + os._exit so hung threads can NEVER delay process exit
+IDX Hybrid Sniper - Lightning Parallel Updater v6.0 (Yahoo 401/Crumb Killer)
+- curl_cffi chrome-impersonating session per worker thread (fixes Invalid Crumb 401)
+- one automatic retry per ticker
+- socket timeout 15s, 8 workers, 6-min deadline, hard_exit hang-proof
 """
 import os
 import socket
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -21,6 +22,20 @@ from src.db_manager import db_manager
 
 WORKERS = 8
 DEADLINE_SECONDS = 6 * 60
+
+_local = threading.local()
+
+
+def _session():
+    s = getattr(_local, "sess", None)
+    if s is None:
+        try:
+            from curl_cffi import requests as cffi
+            s = cffi.Session(impersonate="chrome")
+        except Exception:
+            s = None
+        _local.sess = s
+    return s
 
 
 def _global_last_date():
@@ -74,13 +89,20 @@ def _hardwire_save(ticker, frame):
 def _fetch_one(job):
     ticker, start_str, end_str = job
     sym = ticker if ticker.endswith(".JK") else ticker + ".JK"
-    try:
-        df = yf.download(sym, start=start_str, end=end_str,
-                         interval="1d", progress=False,
-                         threads=False, timeout=15)
-        return ticker, df
-    except Exception:
-        return ticker, None
+    for attempt in (1, 2):
+        try:
+            kw = dict(start=start_str, end=end_str, interval="1d",
+                      progress=False, threads=False, timeout=15)
+            sess = _session()
+            if sess is not None:
+                kw["session"] = sess
+            df = yf.download(sym, **kw)
+            if df is not None and len(df) > 0:
+                return ticker, df
+        except Exception:
+            pass
+        time.sleep(1)
+    return ticker, None
 
 
 def run_lightning_update(progress_cb=None, hard_exit=False):
