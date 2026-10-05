@@ -1,9 +1,12 @@
 """
-IDX Hybrid Sniper - Lightning Parallel Updater v4.0 (Deadline-Guarded)
-- 12 concurrent workers, single-ticker downloads (no internal pool hangs)
-- HARD 6-MINUTE DEADLINE: scan proceeds with whatever landed
-- Direct SQL upsert with CORRECT '.JK' suffix (idempotent)
+IDX Hybrid Sniper - Lightning Parallel Updater v5.0 (Hang-Proof)
+- socket default timeout kills hung Yahoo connections early
+- 8 workers, 6-min internal deadline
+- hard_exit: flush + os._exit so hung threads can NEVER delay process exit
 """
+import os
+import socket
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -11,10 +14,12 @@ from datetime import datetime, timedelta
 import pandas as pd
 import yfinance as yf
 
+socket.setdefaulttimeout(15)
+
 from src.data_engine import data_engine
 from src.db_manager import db_manager
 
-WORKERS = 12
+WORKERS = 8
 DEADLINE_SECONDS = 6 * 60
 
 
@@ -72,13 +77,13 @@ def _fetch_one(job):
     try:
         df = yf.download(sym, start=start_str, end=end_str,
                          interval="1d", progress=False,
-                         threads=False, timeout=20)
+                         threads=False, timeout=15)
         return ticker, df
     except Exception:
         return ticker, None
 
 
-def run_lightning_update(progress_cb=None):
+def run_lightning_update(progress_cb=None, hard_exit=False):
     tickers = data_engine.get_tickers()
     last = _global_last_date()
     today = datetime.now().date()
@@ -118,4 +123,9 @@ def run_lightning_update(progress_cb=None):
         stats["deadline_skipped"] = sum(1 for f in futs if not f.done())
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
+
+    if hard_exit:
+        print('STATS:', stats)
+        sys.stdout.flush()
+        os._exit(0)
     return stats
