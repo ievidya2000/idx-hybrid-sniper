@@ -1,8 +1,8 @@
 """
-IDX Hybrid Sniper - Lightning Parallel Updater v6.0 (Yahoo 401/Crumb Killer)
-- curl_cffi chrome-impersonating session per worker thread (fixes Invalid Crumb 401)
-- one automatic retry per ticker
-- socket timeout 15s, 8 workers, 6-min deadline, hard_exit hang-proof
+IDX Hybrid Sniper - Lightning Parallel Updater v7.0 (Bulk-Save Edition)
+Phase 1: parallel fetch (8 workers, chrome session, 6-min deadline) -> frames in MEMORY
+Phase 2: chunked multi-row INSERTs (<=400 rows/statement) -> seconds
+Phase 3: hard_exit so hung threads can never delay the job
 """
 import os
 import socket
@@ -22,6 +22,7 @@ from src.db_manager import db_manager
 
 WORKERS = 8
 DEADLINE_SECONDS = 6 * 60
+INSERT_CHUNK = 400
 
 _local = threading.local()
 
@@ -63,29 +64,6 @@ def _strip_frame(df):
     return out if len(out) > 0 else None
 
 
-def _hardwire_save(ticker, frame):
-    if frame is None or frame.empty:
-        return 0
-    sym = ticker if ticker.endswith(".JK") else ticker + ".JK"
-    saved = 0
-    for idx, row in frame.iterrows():
-        date_val = idx.date() if hasattr(idx, 'date') else idx
-        try:
-            q = ("INSERT INTO market_data (ticker, date, open, high, low, close, volume) "
-                 "VALUES (%s, %s, %s, %s, %s, %s, %s) "
-                 "ON CONFLICT (ticker, date) DO UPDATE SET "
-                 "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, "
-                 "close = EXCLUDED.close, volume = EXCLUDED.volume")
-            db_manager.execute_query(q, (
-                sym, date_val,
-                float(row['Open']), float(row['High']), float(row['Low']),
-                float(row['Close']), int(row['Volume'])))
-            saved += 1
-        except Exception:
-            pass
-    return saved
-
-
 def _fetch_one(job):
     ticker, start_str, end_str = job
     sym = ticker if ticker.endswith(".JK") else ticker + ".JK"
@@ -105,6 +83,33 @@ def _fetch_one(job):
     return ticker, None
 
 
+def _bulk_save(frames):
+    rows = []
+    for ticker, frame in frames.items():
+        sym = ticker if ticker.endswith(".JK") else ticker + ".JK"
+        for idx, r in frame.iterrows():
+            d = idx.date() if hasattr(idx, 'date') else idx
+            rows.append((sym, d.isoformat(), float(r['Open']), float(r['High']),
+                         float(r['Low']), float(r['Close']), int(r['Volume'])))
+    saved = 0
+    for i in range(0, len(rows), INSERT_CHUNK):
+        chunk = rows[i:i + INSERT_CHUNK]
+        vals = ", ".join(
+            "('%s','%s',%r,%r,%r,%r,%d)" % c
+            for c in chunk)
+        q = ("INSERT INTO market_data (ticker, date, open, high, low, close, volume) "
+             "VALUES " + vals + " "
+             "ON CONFLICT (ticker, date) DO UPDATE SET "
+             "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, "
+             "close = EXCLUDED.close, volume = EXCLUDED.volume")
+        try:
+            db_manager.execute_query(q)
+            saved += len(chunk)
+        except Exception as e:
+            print("chunk save failed:", str(e)[:120])
+    return saved
+
+
 def run_lightning_update(progress_cb=None, hard_exit=False):
     tickers = data_engine.get_tickers()
     last = _global_last_date()
@@ -116,9 +121,10 @@ def run_lightning_update(progress_cb=None, hard_exit=False):
     start_str = start.strftime("%Y-%m-%d")
     end_str = (today + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    stats = {"total": len(tickers), "saved_tickers": 0,
-             "rows": 0, "errors": 0, "deadline_skipped": 0}
+    stats = {"total": len(tickers), "fetched": 0, "errors": 0,
+             "deadline_skipped": 0, "rows_saved": 0}
     jobs = [(t, start_str, end_str) for t in tickers]
+    frames = {}
     done = 0
     ex = ThreadPoolExecutor(max_workers=WORKERS)
     futs = [ex.submit(_fetch_one, j) for j in jobs]
@@ -130,12 +136,8 @@ def run_lightning_update(progress_cb=None, hard_exit=False):
             if frame is None:
                 stats["errors"] += 1
             else:
-                n = _hardwire_save(ticker, frame)
-                if n > 0:
-                    stats["saved_tickers"] += 1
-                    stats["rows"] += n
-                else:
-                    stats["errors"] += 1
+                frames[ticker] = frame
+                stats["fetched"] += 1
             if progress_cb:
                 try:
                     progress_cb(done, len(jobs))
@@ -145,6 +147,12 @@ def run_lightning_update(progress_cb=None, hard_exit=False):
         stats["deadline_skipped"] = sum(1 for f in futs if not f.done())
     finally:
         ex.shutdown(wait=False, cancel_futures=True)
+
+    print("FETCH PHASE DONE:", stats)
+    sys.stdout.flush()
+    stats["rows_saved"] = _bulk_save(frames)
+    print("SAVE PHASE DONE rows:", stats["rows_saved"])
+    sys.stdout.flush()
 
     if hard_exit:
         print('STATS:', stats)
