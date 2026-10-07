@@ -39,8 +39,9 @@ jobs:
         run: |
           timeout -k 15 660 python -c "from src.fast_update import run_lightning_update as r; r(hard_exit=True)" || echo "UPDATE GUARD TRIGGERED - continuing with saved data"
 
-      - name: RAM scan (ONE bulk query, CPU only)
-        run: python -c "from src.ram_scan import run_ram_scan as s; s()"
+      - name: RAM scan v1.1 (ONE bulk query, CPU only, 15-min guard)
+        run: |
+          timeout -k 10 900 python -c "from src.ram_scan import run_ram_scan as s; s()" || echo "SCAN GUARD TRIGGERED"
 
       - name: Send Rich Telegram Report (reads scan_out.json, no re-scan)
         if: always()
