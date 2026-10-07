@@ -2,13 +2,13 @@ name: daily-sniper
 
 on:
   schedule:
-    # 10:20 WIB -> report ~10:30
+    # 10:20 WIB
     - cron: "20 3 * * 1-5"
-    # 12:20 WIB -> report ~12:30
+    # 12:20 WIB
     - cron: "20 5 * * 1-5"
-    # 13:50 WIB -> report ~14:00
+    # 13:50 WIB
     - cron: "50 6 * * 1-5"
-    # 17:15 WIB -> EOD report ~17:25
+    # 17:15 WIB
     - cron: "15 10 * * 1-5"
   workflow_dispatch:
 
@@ -35,21 +35,13 @@ jobs:
           pip install -r requirements.txt
           pip install "curl_cffi>=0.15"
 
-      - name: Lightning update (6-min deadline + 10-min shell kill guard)
+      - name: Lightning update v7 (fetch 6-min cap + bulk save)
         run: |
-          timeout -k 15 600 python -c "from src.fast_update import run_lightning_update as r; r(hard_exit=True)" || echo "UPDATE GUARD TRIGGERED - continuing with data already saved"
+          timeout -k 15 660 python -c "from src.fast_update import run_lightning_update as r; r(hard_exit=True)" || echo "UPDATE GUARD TRIGGERED - continuing with saved data"
 
-      - name: Scan for signals (DB-only, FAST - bypasses main.py hidden update)
-        run: |
-          python - << 'PY'
-          from src.strategy import strategy
-          from src.data_engine import data_engine
-          tickers = data_engine.get_tickers()
-          sigs = strategy.scan_tickers(tickers, data_engine)
-          n = len([s for s in sigs if s.signal_type != 'NO_SIGNAL'])
-          print('SCAN_DONE signals=', n)
-          PY
+      - name: RAM scan (ONE bulk query, CPU only)
+        run: python -c "from src.ram_scan import run_ram_scan as s; s()"
 
-      - name: Send Rich Telegram Report
+      - name: Send Rich Telegram Report (reads scan_out.json, no re-scan)
         if: always()
         run: python src/telegram_notifier.py
