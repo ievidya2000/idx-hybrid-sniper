@@ -357,7 +357,8 @@ elif page == "📊 Market Screener":
         2. Click `🔍 Scan Market Now` button (RAM scan ~1-2 min).
         3. Review SMC & Momentum signals in summary table.
         4. Use 📥 CSV /  HTML buttons (directly under the table) to export.
-        5. Use Signal Details Inspector for in-depth analysis.
+        5. In the HTML report: **click any column header to sort** (▲/▼).
+        6. Use Signal Details Inspector for in-depth analysis.
 
         **Signal Quality Guide:**
         - 🟢 **Best**: SMC Confirmed + STRONG rejection + RS > +10%
@@ -531,7 +532,7 @@ elif page == "📊 Market Screener":
                 hide_index=True
             )
 
-            # === PROFESSIONAL EXPORT BUTTONS (CSV + HTML) ===
+            # === PROFESSIONAL EXPORT BUTTONS (CSV + SORTABLE HTML) ===
             stamp = scan_time.strftime('%Y%m%d_%H%M')
             csv_out = display_df.to_csv(index=False)
             csv_bytes = csv_out.encode('utf-8-sig')
@@ -541,17 +542,62 @@ elif page == "📊 Market Screener":
             h += "body{font-family:Arial,sans-serif;margin:24px;}"
             h += "h1{color:#0f4c81;}"
             h += "h2{color:#666666;}"
+            h += "p.hint{color:#888888;font-size:13px;}"
             h += "table{border-collapse:collapse;width:100%;}"
-            h += "th{background:#0f4c81;color:#ffffff;padding:8px;}"
+            h += "th{background:#0f4c81;color:#ffffff;padding:8px;cursor:pointer;position:sticky;top:0;user-select:none;}"
+            h += "th:hover{background:#1663a8;}"
             h += "td{border:1px solid #dddddd;padding:6px;}"
             h += "tr:nth-child(even){background:#f4f8fc;}"
+            h += "th.asc::after{content:' \\25B2';}"
+            h += "th.desc::after{content:' \\25BC';}"
             h += "</style></head><body>"
             h += "<h1>IDX Hybrid Sniper - Signals</h1>"
             h += "<h2>Scan: "
             h += scan_time.strftime('%Y-%m-%d %H:%M')
             h += " WIB</h2>"
+            h += "<p class='hint'>Klik judul kolom untuk mengurutkan (&#9650; naik / &#9660; turun). Klik lagi untuk balik arah.</p>"
             h += display_df.to_html(index=False, border=0)
-            h += "</body></html>"
+            h += """
+<script>
+(function(){
+  var table = document.querySelector('table');
+  if (!table) return;
+  var headers = table.querySelectorAll('thead th');
+  var rows = Array.prototype.slice.call(table.querySelectorAll('tbody tr'));
+  function numKey(s){
+    s = (s || '').trim();
+    if (s === '-' || s === '') return null;
+    var m = s.match(/^1:([\\d.]+)$/);
+    if (m) return parseFloat(m[1]);
+    m = s.match(/^([+-]?[\\d.,]+)%$/);
+    if (m) return parseFloat(m[1].replace(/,/g, ''));
+    m = s.match(/^[+-]?[\\d,]+(\\.\\d+)?$/);
+    if (m) return parseFloat(s.replace(/,/g, ''));
+    return null;
+  }
+  headers.forEach(function(th, idx){
+    th.addEventListener('click', function(){
+      var asc = !th.classList.contains('asc');
+      headers.forEach(function(o){ o.classList.remove('asc'); o.classList.remove('desc'); });
+      th.classList.add(asc ? 'asc' : 'desc');
+      var sorted = rows.slice().sort(function(a, b){
+        var ca = a.cells[idx] ? a.cells[idx].innerText : '';
+        var cb = b.cells[idx] ? b.cells[idx].innerText : '';
+        var na = numKey(ca), nb = numKey(cb);
+        var r;
+        if (na !== null && nb !== null) r = na - nb;
+        else if (na !== null) r = -1;
+        else if (nb !== null) r = 1;
+        else r = ca.localeCompare(cb);
+        return asc ? r : -r;
+      });
+      var tbody = table.querySelector('tbody');
+      sorted.forEach(function(tr){ tbody.appendChild(tr); });
+    });
+  });
+})();
+</script>
+</body></html>"""
             html_bytes = h.encode('utf-8')
             col_csv, col_html = st.columns(2)
             with col_csv:
@@ -1112,4 +1158,4 @@ st.markdown(
     "IDX Hybrid Sniper v2.0 | Buy on Weakness, Sell on Strength, Ride the Monster Trend"
     "</div>",
     unsafe_allow_html=True
-        )
+                    )
