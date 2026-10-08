@@ -18,7 +18,7 @@ st.set_page_config(
 
 # Import modules
 from src.data_engine import data_engine
-from src.strategy import strategy
+from src.strategy import strategy, Signal
 from src.journal_mgr import journal_mgr
 from src.fast_update import run_lightning_update
 from src.visualizer import (
@@ -354,9 +354,9 @@ elif page == "📊 Market Screener":
         st.markdown('''
         **Steps:**
         1. Tick ⚡ box ONLY when you need LIVE Yahoo data (adds ~2-4 min).
-        2. Click `🔍 Scan Market Now` button.
+        2. Click `🔍 Scan Market Now` button (RAM scan ~1-2 min).
         3. Review SMC & Momentum signals in summary table.
-        4. Use 📥 CSV / 🌐 HTML buttons to export the results.
+        4. Use 📥 CSV /  HTML buttons (directly under the table) to export.
         5. Use Signal Details Inspector for in-depth analysis.
 
         **Signal Quality Guide:**
@@ -451,9 +451,10 @@ elif page == "📊 Market Screener":
         else:
             st.info("📡 Fast Scan: using database. Tick ⚡ box for LIVE Yahoo batch update via cloud.")
 
-        with st.spinner(f"⚡ Scanning {len(tickers)} stocks (DB-ONLY mode, no sequential timeouts)..."):
-            # GHOST-KILLER: Scan only uses what is in Supabase right now.
-            signals = strategy.scan_tickers(tickers, data_engine)
+        with st.spinner(f"⚡ RAM-scanning {len(tickers)} stocks (ONE bulk query, CPU only, ~1-2 min)..."):
+            from src.ram_scan import run_ram_scan
+            payload = run_ram_scan()
+            signals = [Signal.from_dict(d) for d in payload.get("signals", [])]
             scan_time = datetime.now()
 
             # Store in session state
@@ -1111,4 +1112,4 @@ st.markdown(
     "IDX Hybrid Sniper v2.0 | Buy on Weakness, Sell on Strength, Ride the Monster Trend"
     "</div>",
     unsafe_allow_html=True
-)
+        )
